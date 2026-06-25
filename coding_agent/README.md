@@ -2,6 +2,16 @@
 
 A standalone LangGraph agent that generates Python code, validates it in an isolated venv, fixes errors automatically, runs tests, and returns only verified code.
 
+## Supported Python Versions
+
+**The agent generates code ONLY for these Python versions:**
+- ✅ Python 3.10
+- ✅ Python 3.11  
+- ✅ Python 3.12
+- ✅ Python 3.13 (default)
+
+Code is generated with version-specific syntax and features. The agent will attempt to find and use the exact Python version you specify.
+
 ---
 
 ## Setup
@@ -38,28 +48,76 @@ python run_agent.py '{"task": "...", "version": "3.13", "constraints": ["beginne
 
 ## Workflow
 
-```
-[1] understand_task       — LLM analyzes the task, identifies components and edge cases
-[2] generate_code         — LLM writes Python code + suggests pip packages
-[3] detect_dependencies   — merges user deps + LLM deps + auto-detected imports
-[4] create_sandbox        — creates a temp dir + Python venv
-[5] install_dependencies  — pip installs all packages into the venv
-[6] execute_code          — runs main.py inside the venv
-      │
-      ├── ✓ pass → [8] generate_tests
-      └── ✗ fail → [7] repair_code → back to [6]  (max 3 retries)
-                        if retries exhausted → [11] finalize (failure)
+### Complete Pipeline (11 Nodes)
 
-[8] generate_tests        — LLM writes pytest test cases for the code
-[9] run_tests             — runs pytest inside the venv
-      │
-      ├── ✓ pass → [10] code_review
-      └── ✗ fail → [7] repair_code → back to [9]  (max 3 retries)
-                        if retries exhausted → [10] code_review (flagged)
-
-[10] code_review          — LLM scores readability, correctness, best practices
-[11] finalize             — prints summary, writes final requirements.txt
 ```
+┌─────────────────────────────────────────────────────────────────┐
+│ [1] UNDERSTAND TASK                                             │
+│     LLM analyzes: complexity, components, edge cases, algorithms│
+└──────────────────────┬──────────────────────────────────────────┘
+                       ↓
+┌─────────────────────────────────────────────────────────────────┐
+│ [2] GENERATE CODE                                               │
+│     LLM writes Python code for specified version + suggests deps│
+└──────────────────────┬──────────────────────────────────────────┘
+                       ↓
+┌─────────────────────────────────────────────────────────────────┐
+│ [3] DETECT DEPENDENCIES                                         │
+│     Merge: user-provided + LLM-suggested + auto-detected imports│
+└──────────────────────┬──────────────────────────────────────────┘
+                       ↓
+┌─────────────────────────────────────────────────────────────────┐
+│ [4] CREATE SANDBOX                                              │
+│     Create temp directory + Python venv for specified version   │
+└──────────────────────┬──────────────────────────────────────────┘
+                       ↓
+┌─────────────────────────────────────────────────────────────────┐
+│ [5] INSTALL DEPENDENCIES                                        │
+│     pip install all packages in isolated venv                   │
+└──────────────────────┬──────────────────────────────────────────┘
+                       ↓
+┌─────────────────────────────────────────────────────────────────┐
+│ [6] EXECUTE CODE                                                │
+│     Run main.py in venv, capture stdout/stderr/exit_code        │
+└────────┬──────────────────────┬─────────────────────────────────┘
+         │                      │
+      SUCCESS                FAILURE
+         │                      │
+         ↓                      ↓
+  ┌──────────────┐      ┌─────────────────────┐
+  │ [8] GENERATE │      │ [7] REPAIR CODE     │
+  │     TESTS    │      │     (LLM fixes)     │
+  └──────┬───────┘      └──────┬──────────────┘
+         │                     │
+         │              code_retry_count < 3? YES → back to [5]
+         │              code_retry_count = 3? NO  → [11] finalize
+         ↓
+  ┌──────────────────┐
+  │ [9] RUN TESTS    │
+  │     (pytest)     │
+  └────┬────────┬────┘
+       │        │
+    PASS      FAIL
+       │        │
+       ↓        └──→ [7] REPAIR CODE (fix to pass tests)
+  ┌──────────────┐         │
+  │ [10] CODE    │  test_retry_count < 3? YES → back to [9]
+  │     REVIEW   │  test_retry_count = 3? NO  → continue
+  └──────┬───────┘
+         ↓
+  ┌─────────────────────────────────────────────────────────────┐
+  │ [11] FINALIZE                                               │
+  │      Return verified code + tests + requirements.txt        │
+  └─────────────────────────────────────────────────────────────┘
+```
+
+### Key Points
+
+- ✅ **Execution loop**: Repairs code up to 3 times if execution fails
+- ✅ **Testing loop**: Repairs code up to 3 times if tests fail
+- ✅ **Same repair node**: Handles both loops using `phase` field
+- ✅ **Version-specific**: All code generated for specified Python version
+- ✅ **Isolated**: Each run gets fresh sandbox with correct Python version
 
 ---
 
@@ -86,8 +144,25 @@ The same `repair_code` node handles both loops — it uses the current `phase` (
 
 ---
 
-## Notes
+## Important Notes
 
-- Sandbox is **not auto-deleted** — inspect files at the printed path, then remove manually.
-- If your requested Python version isn't installed, the agent falls back to `python3`.
-- No changes to the main Script Authoring Pipeline — this agent is fully independent.
+### Python Version Handling
+
+The agent will:
+1. Look for `python{version}` binary (e.g., `python3.11`)
+2. Fall back to `python3` if not found (with warning)
+3. Generate code specifically for the requested version (3.10, 3.11, 3.12, or 3.13)
+
+**Always specify a supported version** (3.10-3.13) for best results.
+
+### Sandbox Management
+
+- Sandbox is **not auto-deleted** — inspect files at the printed path, then remove manually if needed
+- Each run creates a fresh isolated environment
+- Location printed in output: `Sandbox: /tmp/coding_agent_abc123/`
+
+### Independence
+
+- No changes to the main Script Authoring Pipeline
+- This agent is fully standalone and can be used independently
+- Import with: `from coding_agent import run_agent`

@@ -43,19 +43,31 @@ The core generation pipeline (`pipeline/graph.py`) follows a **deliberately line
 
 **Flow:**
 ```
-validate_input → plan_script → generate_segments → merge_script → validate_and_eval → END
+validate_input → plan_script → generate_and_eval_segments → merge_script → END
 ```
 
 - **validate_input**: Fast deterministic checks (topic, agenda, percentages, timing constraints)
 - **plan_script**: GPT-4o creates segment structure from brief; falls back to mechanical plan if LLM fails
-- **generate_segments**: Parallelized generation of all segments (5 concurrent workers max)
-  - Each segment runs its own generate → eval → retry loop (up to 2 retries)
-  - Uses plan stubs (title + duration) for context instead of full content, enabling full parallelization
-- **merge_script**: Assembles final script object with metadata
-- **validate_and_eval**: Two-stage validation
-  1. Rule checks (deterministic: agenda coverage, timing, code ratio, transitions, examples)
-  2. LLM evaluation of full script (coverage, flow, pacing, level_fit, transitions)
-  3. One-shot weakest-segment regeneration if overall score < 3.8
+- **generate_and_eval_segments**: SEQUENTIAL generation with per-segment evaluation loop
+  - Generates segments ONE AT A TIME (not parallel)
+  - Each segment sees actual content from previous segments (not just stubs)
+  - Per-segment evaluation loop (max 3 retries):
+    1. Generate content
+    2. Two-stage evaluation:
+       - Rule checks (examples, definitions, transitions, code blocks)
+       - LLM pedagogy evaluation (9 dimensions including level-fit)
+    3. If fails (score < 4.0): regenerate with detailed feedback
+    4. If passes: move to next segment
+  - Only proceeds when ALL segments pass quality threshold
+- **merge_script**: Assembles final script with metadata and validation summary
+
+**Key Quality Controls:**
+- **Concepts before use**: Terms must be defined before appearing in examples
+- **Intuition first**: Motivation explained before showing code/formulas
+- **Examples & analogies**: Concrete examples + real-world analogies required
+- **Level adaptivity**: 80% beginner content reads differently from 80% advanced
+- **Builds on previous**: Each segment must reference prior material
+- **Checkpoint questions**: Meaningful comprehension checks (not "any questions?")
 
 ### State Management
 
@@ -70,17 +82,41 @@ validate_input → plan_script → generate_segments → merge_script → valida
 
 ### Evaluation Strategy
 
-**Two-tier quality control:**
+**Per-segment evaluation with retry loop** (`nodes.py:_eval_segment`):
 
-1. **Per-segment** (`nodes.py:_eval_segment`):
-   - **Stage 1 (Rule-based)**: Fast checks for examples, definitions, checkpoints, transitions, code blocks, prior-material references
-   - **Stage 2 (LLM)**: Scores sentence framing + 6 pedagogy dimensions + faithfulness (pass threshold: 3.5/5.0)
-   - Rule failures incur small score penalty (0.15 per issue, capped at -0.5)
-   - Retry loop: regenerates with feedback until pass or max retries (2)
+**Two-stage evaluation:**
 
-2. **Full-script** (`nodes.py:_eval_full_script`):
-   - Evaluates coverage, flow, pacing, level_fit, transitions (pass threshold: 3.8/5.0)
-   - Identifies weakest segment for targeted regen if script fails
+1. **Rule-based checks** (deterministic):
+   - Examples and analogies present
+   - Technical terms defined before use
+   - Comprehension checkpoint present
+   - Transition phrases to next section
+   - Code blocks when required
+   - References to prior material
+   - Minimum content length
+
+2. **LLM pedagogy evaluation** (9 dimensions, pass threshold: 4.0/5.0):
+   - `sentence_framing`: Conversational, instructor-ready language
+   - `concepts_introduced_first`: Terms defined before use (strict check)
+   - `intuition_first`: Motivation before formal definitions
+   - `examples_and_analogies`: Concrete examples + real-world analogies
+   - `terms_explained`: Plain-English definitions when terms first appear
+   - `builds_on_previous`: Explicit references to prior segments
+   - `has_checkpoint`: Meaningful comprehension question
+   - `level_fit`: Matches beginner/advanced ratio (critical for adaptivity)
+   - `faithfulness`: Delivers on promised title/purpose
+
+**Retry mechanism:**
+- If score < 4.0: regenerate with detailed, actionable feedback
+- Max 3 attempts per segment
+- Feedback includes specific line references and exact problems
+- Only moves to next segment when current passes or max retries exhausted
+
+**Why sequential, not parallel:**
+- Each segment needs actual content from previous segments (not stubs)
+- Enables "builds on previous" pedagogy check
+- Ensures strong narrative coherence
+- Quality gate before proceeding forward
 
 ### Data Persistence
 
@@ -102,11 +138,19 @@ Scripts are stored as JSON files in `data/{script_id}.json`. Each file contains:
 | `GET /download/{id}` | Export as Markdown | Compiles all segments into downloadable .md file |
 | `GET /health` | Health check | Returns status + version |
 
-### Parallelization
+### Sequential Generation (Not Parallel)
 
-- **Segment generation**: ThreadPoolExecutor with 5 max workers (`nodes.py:generate_segments`)
-- Each segment is independently generated and evaluated before merging
-- Context for each segment = plan stubs (title + duration) of prior segments, NOT full content — this design choice enables true parallelism
+**Why sequential:**
+- Each segment uses actual content from prior segments (not just stubs)
+- Enables strong pedagogical coherence ("As we saw in the previous section...")
+- Quality gate before moving forward (can't proceed until current segment passes)
+- Ensures level adaptivity is consistent across the entire script
+
+**Trade-off:**
+- Slower than parallel (segments generated one-by-one)
+- BUT produces higher quality with better narrative flow
+- Typical 5-segment script: ~3-5 minutes vs ~1-2 minutes for parallel
+- Quality improvement justifies the extra time
 
 ### LLM Configuration
 
@@ -118,15 +162,21 @@ Scripts are stored as JSON files in `data/{script_id}.json`. Each file contains:
 ## Key Design Decisions
 
 1. **Linear graph with internal retry loops** (not complex conditional edges) — easier to debug, trace, and reason about
-2. **Parallel generation with plan-stub context** (not sequential with full content) — 5× faster on typical 5-segment scripts
-3. **Two-tier evaluation** (fast rules + LLM judgment) — catches common issues deterministically before expensive LLM calls
-4. **One-shot weakest-segment regen** (not full-script retry) — targeted fixes are cheaper and preserve good segments
-5. **File-based persistence** (not database) — simple for prototype, easy to inspect, version-controllable
+2. **Sequential generation with actual prior content** (not parallel with stubs) — stronger pedagogy, better narrative coherence
+3. **Per-segment evaluation loop** (not post-generation batch eval) — quality gate before proceeding, prevents cascading errors
+4. **Strict pass threshold (4.0/5.0)** — ensures only high-quality segments move forward
+5. **Level adaptivity enforced** — explicit `level_fit` dimension checks beginner/advanced ratio is respected
+6. **Concepts-before-use checking** — terms must be defined before appearing in examples
+7. **Two-tier evaluation** (fast rules + LLM judgment) — catches common issues deterministically before expensive LLM calls
+8. **File-based persistence** (not database) — simple for prototype, easy to inspect, version-controllable
 
 ## Common Modification Patterns
 
 **Adjusting quality thresholds:**
-- Edit constants at top of `pipeline/nodes.py`: `MAX_SEGMENT_RETRIES`, `SEGMENT_PASS_SCORE`, `SCRIPT_PASS_SCORE`
+- Edit constants at top of `pipeline/nodes.py`:
+  - `MAX_SEGMENT_RETRIES = 3` (attempts per segment)
+  - `SEGMENT_PASS_SCORE = 4.0` (minimum score to accept segment)
+  - `SCRIPT_PASS_SCORE = 3.8` (kept for backwards compatibility, not actively used)
 
 **Changing prompts:**
 - All prompt templates live in `pipeline/prompts.py`
