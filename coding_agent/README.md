@@ -4,13 +4,17 @@ A standalone LangGraph agent that generates Python code, validates it in an isol
 
 ## Supported Python Versions
 
-**The agent generates code ONLY for these Python versions:**
+**⚠️ STRICT REQUIREMENT: Code is generated ONLY for these versions:**
 - ✅ Python 3.10
 - ✅ Python 3.11  
 - ✅ Python 3.12
 - ✅ Python 3.13 (default)
 
-Code is generated with version-specific syntax and features. The agent will attempt to find and use the exact Python version you specify.
+**Validation:**
+- ❌ Requesting version 3.9, 3.14, or any other version will raise `ValueError`
+- ✅ Code is generated with version-specific syntax and features
+- ✅ The agent will attempt to find and use the exact Python binary you specify
+- ⚠️ If the binary isn't found, it falls back to `python3` with a warning
 
 ---
 
@@ -148,12 +152,20 @@ The same `repair_code` node handles both loops — it uses the current `phase` (
 
 ### Python Version Handling
 
-The agent will:
-1. Look for `python{version}` binary (e.g., `python3.11`)
-2. Fall back to `python3` if not found (with warning)
-3. Generate code specifically for the requested version (3.10, 3.11, 3.12, or 3.13)
+**Strict Version Control:**
+1. **Validation at entry**: `run_agent()` validates version BEFORE any work starts
+2. **Only supported versions**: 3.10, 3.11, 3.12, 3.13 (others raise `ValueError`)
+3. **Binary detection**: Looks for `python{version}` binary (e.g., `python3.11`)
+4. **Fallback with warning**: Falls back to `python3` if specific version not found
+5. **Version-specific code**: LLM generates syntax/features appropriate for the version
 
-**Always specify a supported version** (3.10-3.13) for best results.
+**Example Error:**
+```python
+>>> run_agent(task="...", version="3.9")
+ValueError: Unsupported Python version: 3.9
+Supported versions: 3.10, 3.11, 3.12, 3.13
+The coding agent generates code ONLY for these specific versions.
+```
 
 ### Sandbox Management
 

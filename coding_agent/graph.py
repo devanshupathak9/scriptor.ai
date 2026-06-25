@@ -37,6 +37,9 @@ from .nodes import (
     MAX_TEST_RETRIES,
 )
 
+# Supported Python versions - code will ONLY be generated for these versions
+SUPPORTED_VERSIONS = ["3.10", "3.11", "3.12", "3.13"]
+
 
 def _route_after_execution(state: CodingAgentState) -> str:
     if state.get("execution_success"):
@@ -143,7 +146,7 @@ def run_agent(
     Args:
         task:            Natural-language description of what to build.
         language:        Programming language (currently only "python" is supported).
-        version:         Target Python version string, e.g. "3.11", "3.12", "3.13".
+        version:         Target Python version string. MUST be one of: 3.10, 3.11, 3.12, 3.13
         dependencies:    Explicit pip packages to include.
         constraints:     Free-text constraints (e.g. "Readable for beginners").
         expected_output: Optional description of expected program output.
@@ -155,7 +158,17 @@ def run_agent(
             code, tests, execution_output,
             review_notes, sandbox_dir, error_message
         }
+
+    Raises:
+        ValueError: If version is not in SUPPORTED_VERSIONS (3.10, 3.11, 3.12, 3.13)
     """
+    # Validate Python version upfront
+    if version not in SUPPORTED_VERSIONS:
+        raise ValueError(
+            f"Unsupported Python version: {version}\n"
+            f"Supported versions: {', '.join(SUPPORTED_VERSIONS)}\n"
+            f"The coding agent generates code ONLY for these specific versions."
+        )
     initial: CodingAgentState = {
         "task":              task,
         "language":          language,

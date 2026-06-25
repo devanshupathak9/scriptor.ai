@@ -78,14 +78,20 @@ def main() -> None:
     print(f"  Deps:        {task_input.get('dependencies', [])}")
     print("═" * 60)
 
-    result = run_agent(
-        task=task_input.get("task", ""),
-        language=task_input.get("language", "python"),
-        version=task_input.get("version", "3.13"),
-        dependencies=task_input.get("dependencies", []),
-        constraints=task_input.get("constraints", []),
-        expected_output=task_input.get("expected_output", ""),
-    )
+    try:
+        result = run_agent(
+            task=task_input.get("task", ""),
+            language=task_input.get("language", "python"),
+            version=task_input.get("version", "3.13"),
+            dependencies=task_input.get("dependencies", []),
+            constraints=task_input.get("constraints", []),
+            expected_output=task_input.get("expected_output", ""),
+        )
+    except ValueError as e:
+        # Handle version validation error
+        print(f"\n✗  VERSION ERROR\n")
+        print(f"{str(e)}\n")
+        return
 
     # ── Output ────────────────────────────────────────────────────────────────
     if result["status"] == "success":

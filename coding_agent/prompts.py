@@ -10,6 +10,10 @@ User-specified dependencies: {dependencies}
 Constraints: {constraints}
 Expected output: {expected_output}
 
+IMPORTANT: Code will be generated specifically for Python {version}.
+This is NOT a suggestion - it's a hard requirement. Only use syntax and features
+available in Python {version}. Supported versions are: 3.10, 3.11, 3.12, 3.13.
+
 Return ONLY valid JSON — no markdown fences:
 {{
   "summary": "one-line summary of what to build",
@@ -17,7 +21,7 @@ Return ONLY valid JSON — no markdown fences:
   "algorithms": ["relevant algorithms or data structures"],
   "edge_cases": ["edge cases to handle"],
   "complexity": "simple|medium|complex",
-  "version_notes": "Python {version}-specific notes, or empty string"
+  "version_notes": "Python {version}-specific considerations or features to use/avoid"
 }}"""
 
 
@@ -29,10 +33,17 @@ Analysis: {task_analysis}
 Constraints: {constraints}
 Required dependencies: {dependencies}
 
+CRITICAL VERSION REQUIREMENT:
+The code MUST be compatible with Python {version} ONLY.
+- Check syntax compatibility with {version}
+- Use only stdlib modules available in {version}
+- If using f-strings, match expressions, or other version-specific features, verify they exist in {version}
+- This is a HARD requirement - code that doesn't run in {version} will fail validation
+
 Rules:
 - All logic must live in named functions or classes — no bare top-level script code
 - Include a working `if __name__ == "__main__":` block that demonstrates usage and prints output
-- Use only Python {version}-compatible syntax
+- Use only Python {version}-compatible syntax and features
 - Handle the edge cases listed in the analysis
 - Keep inline comments minimal — only where non-obvious
 

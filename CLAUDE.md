@@ -20,7 +20,7 @@ pip install -r requirements.txt
 uvicorn main:app --reload --port 8000
 
 # Test standalone Coding Agent
-python test_coding_agent.py
+python run_agent.py
 
 # Access points
 # - API: http://localhost:8000
@@ -232,23 +232,25 @@ Understand Task → Generate Code → Detect Dependencies → Create Sandbox
 ### Usage
 
 ```python
-from coding_agent import coding_agent
+from coding_agent import run_agent
 
-initial_state = {
-    "language": "python",
-    "version": "3.11",
-    "task": "Write a binary search function",
-    "dependencies": [],
-    "constraints": ["Readable for beginners"],
-    # ... (see test_coding_agent.py for full state)
-}
-
-result = coding_agent.invoke(initial_state)
+result = run_agent(
+    task="Write a binary search function",
+    language="python",
+    version="3.11",  # MUST be 3.10, 3.11, 3.12, or 3.13
+    dependencies=[],
+    constraints=["Readable for beginners"],
+)
 
 if result["status"] == "success":
-    print(result["final_code"])
+    print(result["code"])
     print(result["requirements_txt"])
 ```
+
+**Python version validation:**
+- Only supports: 3.10, 3.11, 3.12, 3.13
+- Raises `ValueError` for any other version (e.g., 3.9, 3.14)
+- Version check happens at entry before any work starts
 
 ### Success Criteria
 

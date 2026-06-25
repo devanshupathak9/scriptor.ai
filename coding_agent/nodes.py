@@ -155,8 +155,11 @@ def create_sandbox(state: CodingAgentState) -> dict:
 
     python_bin = find_python_binary(version)
     if not python_bin:
+        print(f"       ✗ Python {version} not found on this system!")
+        print(f"       Supported versions: 3.10, 3.11, 3.12, 3.13")
+        print(f"       Install Python {version} or choose a different version.")
         python_bin = "python3"
-        print(f"       ⚠ Python {version} not found, falling back to {python_bin}")
+        print(f"       ⚠ Falling back to {python_bin} (may cause compatibility issues)")
     else:
         print(f"       using binary: {python_bin}")
 
