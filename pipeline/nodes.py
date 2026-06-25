@@ -6,6 +6,7 @@ a dict of fields to update. Keep each node focused on one job.
 import json
 import re
 import uuid
+from concurrent.futures import ThreadPoolExecutor, as_completed
 from datetime import datetime, timezone
 
 from langchain_openai import ChatOpenAI
@@ -156,34 +157,63 @@ def _fallback_plan(brief: dict) -> list:
 
 def generate_segments(state: PipelineState) -> dict:
     """
-    Loop over every segment in the plan.
-    For each one: generate → evaluate → retry up to MAX_SEGMENT_RETRIES if score is low.
+    Generate all segments in parallel using a thread pool.
+
+    Context for each segment comes from plan stubs (title + duration of prior
+    entries) rather than actual generated content — this makes full parallelism
+    possible while still giving the LLM a clear picture of topic order.
+
+    Each segment still goes through the full generate → eval → retry loop
+    independently inside its own thread.
     """
-    brief   = state["brief"]
-    plan    = state["plan"]
-    completed = []
+    brief = state["brief"]
+    plan  = state["plan"]
 
-    for i, seg_plan in enumerate(plan):
-        print(f"[generate_segments] Segment {i+1}/{len(plan)}: '{seg_plan['title']}'")
+    def _generate_one(args: tuple) -> tuple[int, dict]:
+        position, seg_plan = args
+
+        # Build lightweight context from plan (no actual content needed)
+        prev_stubs = [
+            {"title": p["title"], "estimated_time": p["duration"]}
+            for p in plan[:position]
+        ]
+
         feedback = ""
-
         for attempt in range(MAX_SEGMENT_RETRIES + 1):
             if attempt > 0:
-                print(f"  → Retry {attempt} (score too low, applying feedback)")
+                print(f"  [{seg_plan['title']}] Retry {attempt}")
 
-            segment = generate_single_segment(brief, seg_plan, completed, feedback)
-            score, feedback = _eval_segment(brief, seg_plan, segment, completed)
+            segment = generate_single_segment(brief, seg_plan, prev_stubs, feedback)
+            score, feedback = _eval_segment(brief, seg_plan, segment, prev_stubs)
 
-            print(f"  → Score: {score:.1f} {'✓ pass' if score >= SEGMENT_PASS_SCORE else '✗ fail'}")
+            print(f"  [{seg_plan['title']}] Score: {score:.1f} "
+                  f"{'✓ pass' if score >= SEGMENT_PASS_SCORE else '✗ fail'}")
 
-            # Accept if score is good enough OR we've used all retries
             if score >= SEGMENT_PASS_SCORE or attempt == MAX_SEGMENT_RETRIES:
                 segment["_eval_score"] = round(score, 2)
                 break
 
-        completed.append(segment)
+        return position, segment
 
-    return {"segments": completed}
+    max_workers = min(len(plan), 5)   # cap at 5 concurrent LLM calls
+    print(f"[generate_segments] Generating {len(plan)} segments "
+          f"with {max_workers} parallel workers…")
+
+    results: dict[int, dict] = {}
+    with ThreadPoolExecutor(max_workers=max_workers) as executor:
+        futures = {
+            executor.submit(_generate_one, (i, seg_plan)): i
+            for i, seg_plan in enumerate(plan)
+        }
+        for future in as_completed(futures):
+            position, segment = future.result()
+            results[position] = segment
+            print(f"[generate_segments] ✓ '{segment['title']}' done "
+                  f"({position + 1}/{len(plan)})")
+
+    # Restore original order (as_completed returns in completion order)
+    segments = [results[i] for i in range(len(plan))]
+    return {"segments": segments}
 
 
 def generate_single_segment(
