@@ -112,28 +112,42 @@ Score each dimension 1–5. Be strict — a 4 means genuinely good, 5 is excepti
 
 **Sentence Framing**
 sentence_framing: Is the language conversational, active-voice, and instructor-ready?
-Would a teacher naturally say these words aloud in a live class?
+  Would a teacher naturally say these words aloud in a live class?
 
-**Pedagogy — Advanced Topic Teaching Quality**
-Answer these six questions and score each 1–5:
-  concepts_introduced_first: Were ALL concepts introduced/defined BEFORE being used?
-    (No term should appear in a sentence before it has been explained.)
-  intuition_first: Was enough intuition and motivation built BEFORE formal definitions or code?
-    (Students should understand *why* before they see *how*.)
-  examples_and_analogies: Are there concrete examples AND analogies grounding abstract ideas?
-    (At least one real-world analogy + one worked example.)
-  terms_explained: Are difficult technical terms clearly explained the first time they appear?
-    (Definitions or plain-English descriptions should precede or accompany each term.)
-  builds_on_previous: Does this segment explicitly connect to and build on what came before?
-    (References earlier content rather than starting cold.)
-  has_checkpoint: Does the segment end with a meaningful comprehension checkpoint question?
-    (A real question that tests understanding, not just "any questions?")
+**Core Pedagogy**
+concepts_introduced_first: Were ALL concepts introduced/defined BEFORE being used?
+  (No term should appear in a sentence before it has been explained.)
+examples_and_analogies: Are there concrete examples AND analogies grounding abstract ideas?
+  (At least one real-world analogy + one concrete illustration.)
+terms_explained: Are difficult technical terms clearly explained when they first appear?
+  (Definitions or plain-English descriptions should precede or accompany each term.)
+builds_on_previous: Does this segment explicitly connect to and build on what came before?
+  (Should reference prior content rather than starting cold.)
+has_checkpoint: Does the segment end with a meaningful comprehension checkpoint question?
+  (A real question testing understanding, not just "any questions?")
+
+**Advanced Topic Pedagogy**
+prerequisite_coverage: Are ALL prerequisite concepts introduced BEFORE the advanced concept?
+  Example: "Indexes" and "Execution Plans" must appear before "Query Optimizer".
+  Score 5 if all prereqs are covered, 1 if the advanced concept appears without its foundations.
+gradual_complexity: Is the advanced concept broken into progressively harder steps?
+  Should not dump full complexity at once — must build up: simple case → edge cases → full picture.
+  Score low if the hardest idea appears in the first paragraph without warm-up.
+intuition_before_formalism: Is intuition built (via analogy/simple example) BEFORE the formal definition?
+  The "why it matters" and "what it feels like" must come before the technical "how it works".
+  Score low if code or formal definitions appear before any motivation or mental model is established.
+worked_example: Is there at least one worked example or live coding demo showing practical application?
+  Must be an actual walkthrough — not just a mention. Trace through inputs and outputs explicitly.
+  Score low if code blocks appear without step-by-step explanation of what each line does.
+beginner_comprehension: Could a beginner reasonably follow this advanced segment?
+  Jargon must be explained, a recap or summary must be present before moving on,
+  and the checkpoint question must confirm understanding before the next topic.
 
 **Faithfulness**
 faithfulness: Does the content faithfully deliver on the promised title and segment purpose?
-Would an instructor feel this segment covered exactly what it said it would?
+  Would an instructor feel this segment covered exactly what it promised?
 
-overall = mean of all 8 scores (sentence_framing + 6 pedagogy + faithfulness).
+overall = mean of ALL 12 scores (sentence_framing + 10 pedagogy + faithfulness).
 pass = true if overall >= 3.5
 
 Return ONLY valid JSON — no extra text, no markdown fences:
@@ -142,11 +156,15 @@ Return ONLY valid JSON — no extra text, no markdown fences:
     "sentence_framing": 4.0,
     "pedagogy": {{
       "concepts_introduced_first": 4.0,
-      "intuition_first": 3.5,
       "examples_and_analogies": 4.5,
       "terms_explained": 4.0,
       "builds_on_previous": 4.0,
-      "has_checkpoint": 5.0
+      "has_checkpoint": 5.0,
+      "prerequisite_coverage": 4.0,
+      "gradual_complexity": 3.5,
+      "intuition_before_formalism": 4.0,
+      "worked_example": 4.5,
+      "beginner_comprehension": 4.0
     }},
     "faithfulness": 4.5
   }},

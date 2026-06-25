@@ -83,6 +83,46 @@ def check_segment_rules(segment: dict, seg_plan: dict, previous_segments: list) 
     if not min_ok:
         issues.append(f"Content too short ({len(content.strip())} chars, need ≥ 200).")
 
+    # 8. Worked example or practical demonstration
+    #    Require either a code block with surrounding explanation, or explicit walkthrough language.
+    worked_example_markers = [
+        "let's walk through", "let me show", "let's trace", "worked example",
+        "step by step", "here's how", "in practice", "let's see this",
+        "let's try", "consider this example", "take a look at",
+    ]
+    has_worked_example = (
+        any(m in content_lower for m in worked_example_markers)
+        or (has_code_block and len(content.strip()) > 400)  # code block with real context around it
+    )
+    if not is_structural and not has_worked_example:
+        issues.append("No worked example or practical demonstration found.")
+
+    # 9. Gradual complexity — content should build up step-by-step, not dump everything at once
+    gradual_markers = [
+        "first,", "first ", "to start", "to begin", "starting with",
+        "then,", "then ", "next,", "next ", "after that",
+        "finally,", "building on", "now that we", "once you understand",
+        "let's start", "let's begin", "step 1", "step 2",
+    ]
+    gradual_hit_count = sum(1 for m in gradual_markers if m in content_lower)
+    has_gradual_steps = (
+        gradual_hit_count >= 2
+        or bool(__import__("re").search(r"\b\d+\.\s", content))  # numbered list
+    )
+    if not is_structural and not has_gradual_steps:
+        issues.append("Content does not appear to build complexity gradually (missing step markers or numbered progression).")
+
+    # 10. Beginner comprehension aids — recap, summary, or checkpoint before moving on
+    recap_markers = [
+        "to recap", "in summary", "to summarize", "let's review",
+        "in short", "so far we've", "we've covered", "remember that",
+        "key takeaway", "the main point", "to put it simply",
+    ]
+    has_recap = any(m in content_lower for m in recap_markers)
+    beginner_ok = has_checkpoint or has_recap or has_definitions
+    if not is_structural and not beginner_ok:
+        issues.append("No beginner comprehension aids found (missing recap, checkpoint, or jargon definitions).")
+
     return {
         "has_examples":           has_examples,
         "has_definitions":        has_definitions,
@@ -91,6 +131,9 @@ def check_segment_rules(segment: dict, seg_plan: dict, previous_segments: list) 
         "has_code_when_required": not code_required or has_code_block,
         "builds_on_previous":     builds_on_prev,
         "min_length_ok":          min_ok,
+        "has_worked_example":     has_worked_example,
+        "has_gradual_steps":      has_gradual_steps,
+        "beginner_aids_ok":       beginner_ok,
         "issues":                 issues,
         "rule_pass":              len(issues) == 0,
     }

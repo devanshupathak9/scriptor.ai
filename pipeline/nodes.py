@@ -408,13 +408,14 @@ def merge_script(state: PipelineState) -> dict:
 def validate_and_eval(state: PipelineState) -> dict:
     """
     1. Run deterministic rule checks.
-    2. Run LLM evaluation on the whole script.
-    3. If score is below threshold and we haven't retried yet,
-       regenerate the single weakest segment.
+    2. Run full-script LLM evaluation.
+    3. Update the script's validation block with real values.
+
+    Does NOT regenerate anything — if the score is below threshold the graph
+    router sends execution to `regenerate_weak_segment` instead.
     """
     brief    = state["brief"]
     script   = state["script"]
-    plan     = state["plan"]
     segments = script["segments"]
 
     # Step 1 — rule checks (no LLM)
@@ -428,9 +429,10 @@ def validate_and_eval(state: PipelineState) -> dict:
     print("[validate_and_eval] Running full-script LLM eval…")
     eval_report = _eval_full_script(brief, script)
     overall     = eval_report.get("overall_score", 4.0)
-    print(f"  Overall score: {overall:.1f}  pass={eval_report.get('pass', True)}")
+    print(f"  Overall score: {overall:.1f}  "
+          f"{'→ will retry weakest segment' if overall < SCRIPT_PASS_SCORE and not state.get('script_retried') else '→ done'}")
 
-    # Step 3 — Update the script's validation block with real values
+    # Step 3 — Stamp real validation values onto the script
     updated_script = {
         **script,
         "validation": {
@@ -442,40 +444,80 @@ def validate_and_eval(state: PipelineState) -> dict:
         },
     }
 
-    result = {
+    return {
         "rule_report": rule_report,
         "eval_report": eval_report,
-        "script": updated_script,
+        "script":      updated_script,
     }
 
-    # Step 4 — One-shot weakest-segment regen if overall score is too low
+
+def route_after_eval(state: PipelineState) -> str:
+    """
+    Router called after validate_and_eval.
+
+    Sends to 'regenerate' when the overall score is below threshold AND we
+    haven't already retried (one retry allowed to prevent infinite loops).
+    Otherwise sends to 'done'.
+    """
+    overall         = state.get("eval_report", {}).get("overall_score", 5.0)
     already_retried = state.get("script_retried", False)
+
     if overall < SCRIPT_PASS_SCORE and not already_retried:
-        weakest_idx = eval_report.get("weakest_segment_idx", -1)
-        suggestion  = eval_report.get("improvement_suggestions", "")
+        return "regenerate"
+    return "done"
 
-        if 0 <= weakest_idx < len(segments):
-            print(f"[validate_and_eval] Score {overall:.1f} < {SCRIPT_PASS_SCORE}. "
-                  f"Regenerating weakest segment [{weakest_idx}]: '{segments[weakest_idx]['title']}'")
 
-            seg_plan = plan[weakest_idx] if weakest_idx < len(plan) else {
-                "title": segments[weakest_idx]["title"],
-                "duration": segments[weakest_idx]["estimated_time"],
-                "code_required": "```" in segments[weakest_idx].get("content", ""),
-                "checkpoint": bool(segments[weakest_idx].get("checkpoint")),
-            }
+# ── Node 6: Regenerate Weakest Segment ────────────────────────────────────────
 
-            new_seg = generate_single_segment(
-                brief, seg_plan, segments[:weakest_idx], suggestion
-            )
-            new_segments = segments.copy()
-            new_segments[weakest_idx] = new_seg
+def regenerate_weak_segment(state: PipelineState) -> dict:
+    """
+    Regenerate the single weakest segment identified by validate_and_eval.
 
-            updated_script["segments"] = new_segments
-            result["script"]         = updated_script
-            result["script_retried"] = True
+    Sets script_retried=True so the graph only ever enters this node once —
+    the next validate_and_eval pass will always exit to END regardless of score.
+    """
+    brief       = state["brief"]
+    script      = state["script"]
+    plan        = state["plan"]
+    eval_report = state["eval_report"]
+    segments    = script["segments"]
 
-    return result
+    weakest_idx = eval_report.get("weakest_segment_idx", -1)
+    suggestion  = eval_report.get("improvement_suggestions", "")
+
+    if not (0 <= weakest_idx < len(segments)):
+        print("[regenerate_weak_segment] No valid weakest index — skipping regen.")
+        return {"script_retried": True}
+
+    print(f"[regenerate_weak_segment] Regenerating segment [{weakest_idx}]: "
+          f"'{segments[weakest_idx]['title']}'")
+    if suggestion:
+        print(f"  Feedback: {suggestion[:120]}")
+
+    seg_plan = (
+        plan[weakest_idx] if weakest_idx < len(plan)
+        else {
+            "id":            segments[weakest_idx]["id"],
+            "title":         segments[weakest_idx]["title"],
+            "duration":      segments[weakest_idx]["estimated_time"],
+            "code_required": "```" in segments[weakest_idx].get("content", ""),
+            "checkpoint":    bool(segments[weakest_idx].get("checkpoint")),
+        }
+    )
+
+    new_seg = generate_single_segment(
+        brief, seg_plan, segments[:weakest_idx], suggestion
+    )
+
+    new_segments              = segments.copy()
+    new_segments[weakest_idx] = new_seg
+    updated_script            = {**script, "segments": new_segments}
+
+    print(f"[regenerate_weak_segment] Done — graph will re-enter validate_and_eval.")
+    return {
+        "script":         updated_script,
+        "script_retried": True,
+    }
 
 
 def _eval_full_script(brief: dict, script: dict) -> dict:
